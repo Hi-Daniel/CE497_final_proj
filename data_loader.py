@@ -168,3 +168,8 @@ def anonymize_window(window_df):
     anonymized['GazeOrigin_Y'] = anonymized['GazeOrigin_Y'] - anonymized['GazeOrigin_Y'].mean()
     anonymized['GazeOrigin_Z'] = anonymized['GazeOrigin_Z'] - anonymized['GazeOrigin_Z'].mean()
     return anonymized
+
+def normalize_vector_cols(df, cols):
+    norm = np.linalg.norm(df[cols], axis=1)
+    df[cols] = df[cols].div(norm, axis=0)
+    return df
