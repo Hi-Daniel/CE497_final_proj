@@ -145,6 +145,30 @@ def create_windows(df, window_size_points, window_overlap):
         windows.append(df.iloc[i:i + window_size_points])
     return windows
 
+import numpy as np
+import pandas as pd
+
+def fill_dataframe(df, zero_sensitive_cols=None):
+    """
+    Cleans a DataFrame by replacing bad zeros with NaNs and interpolating missing values.
+    Args:
+        df (pd.DataFrame): Raw input DataFrame.
+        zero_sensitive_cols (list): Columns where 0 is considered missing.
+    Returns:
+        pd.DataFrame: Cleaned and interpolated DataFrame.
+    """
+    df = df.copy()
+
+    # Replace bad zeros with NaN only in specific columns
+    if zero_sensitive_cols:
+        df[zero_sensitive_cols] = df[zero_sensitive_cols].replace(0, np.nan)
+
+    # Interpolate everything linearly
+    df = df.interpolate(method='linear', limit_direction='both')
+
+    return df
+
+
 def anonymize_window(window_df):
     """
     Anonymizes a single window by making positions and orientations relative.
