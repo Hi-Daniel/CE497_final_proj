@@ -89,29 +89,29 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
         features['gaze_stability'] = np.nan
 
 
-
-
-    normed_eye_dir = eye_dir.div(np.linalg.norm(eye_dir, axis=1), axis=0)
-    cos_theta = (normed_eye_dir.shift(1) * normed_eye_dir).sum(axis=1).clip(-1.0, 1.0)
-    theta_rad = np.arccos(cos_theta)
-    # Calculate angular velocity and acceleration
-    window_df['eye_velocity_deg'] = np.degrees(theta_rad) / dt  # Convert to deg/sec
-    window_df['eye_accel_deg'] = window_df['eye_velocity_deg'].diff() / dt
-
-
     '''#delete rows with NaN values
     window_df = window_df.dropna()
     '''
 
     # Gaze area covered
     gaze_points = window_df[['GazeOrigin_X', 'GazeOrigin_Y']]
-    area_x = gaze_points['GazeOrigin_X'].max() - gaze_points['GazeOrigin_X'].min()
-    area_y = gaze_points['GazeOrigin_Y'].max() - gaze_points['GazeOrigin_Y'].min()
-    features['gaze_area_covered'] = area_x * area_y
-    features['gaze_spatial_density'] = len(gaze_points) / (features['gaze_area_covered'] + 1e-5)
+    spatial_var = gaze_points.var()
+    features['gaze_area_covered'] = spatial_var.sum()  # X_var + Y_var
 
     # Fixation and saccade estimation (based on velocity threshold)
-    velocity_threshold = 30  # deg/s, rough estimate
+    velocity_threshold = 30  # deg/s
+    normed_eye_dir = eye_dir.div(np.linalg.norm(eye_dir, axis=1), axis=0)
+    # Compute cosine between direction vectors (successive rows)
+    cos_theta = (normed_eye_dir.shift(1) * normed_eye_dir).sum(axis=1).clip(-1.0, 1.0)
+    theta_rad = np.arccos(cos_theta)
+    # Fix first angle using forward diff
+    theta_rad.iloc[0] = np.arccos(np.clip((normed_eye_dir.iloc[0] * normed_eye_dir.iloc[1]).sum(), -1.0, 1.0))
+
+    # Calculate angular velocity and acceleration
+    window_df['eye_velocity_deg'] = np.degrees(theta_rad) / dt  # Convert to deg/sec
+    window_df['eye_accel_deg'] = window_df['eye_velocity_deg'].diff() / dt
+
+
     is_fixation = window_df['eye_velocity_deg'] < velocity_threshold
     n_fix = is_fixation.sum()
     features['n_fixations'] = int(n_fix)
