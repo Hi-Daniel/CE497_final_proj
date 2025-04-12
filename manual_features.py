@@ -3,7 +3,7 @@ import numpy as np
 
 def calculate_manual_features_for_window(window_df, sampling_rate=60):
     """
-    Calculates 18 manual features for a single anonymized window (DataFrame).
+    Calculates manual features for a single anonymized window (DataFrame).
     
     Returns a dictionary of features:
         Eye behavior:
@@ -37,6 +37,7 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
         return {
             # Eye metrics
             'avg_pupil_diameter': np.nan,
+            #'avg_pupil_velocity': np.nan,
             'avg_eye_velocity_deg_degps': np.nan,
             'avg_eye_accel_deg_degps2': np.nan,
             'fix_sacc_ratio': np.nan,
@@ -60,6 +61,7 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
 
     # Eye dynamics
     eye_dir = window_df[['GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']]
+    pupil_diam = window_df['PupilDiameter']
 
     # Movement
     movement = window_df[['CameraOrigin_X', 'CameraOrigin_Y', 'CameraOrigin_Z']]
@@ -67,10 +69,11 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
     
     window_df['movement_velocity'] = np.linalg.norm(movement.diff(), axis=1) / dt
     window_df['turning_velocity'] = np.linalg.norm(turning.diff(), axis=1) / dt
-
     
     window_df['eye_velocity_lin'] = np.linalg.norm(eye_dir.diff(), axis=1) / dt
     window_df['eye_accel_lin'] = window_df['eye_velocity_lin'].diff() / dt
+
+    window_df['pupil_velocity'] = pupil_diam.diff().abs() / dt
     
 
     # Compute relative gaze (egocentric coordinates)
@@ -156,6 +159,7 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
 
     # Basic averages
     features['avg_pupil_diameter'] = window_df['PupilDiameter'].mean()
+    #features['avg_pupil_velocity'] = window_df['pupil_velocity'].mean()
     features['avg_eye_velocity_degps'] = window_df['eye_velocity_deg'].mean()
     features['avg_eye_accel_degps2'] = window_df['eye_accel_deg'].mean()
     features['avg_eye_velocity_lin'] = window_df['eye_velocity_lin'].mean()
