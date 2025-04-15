@@ -145,9 +145,6 @@ def create_windows(df, window_size_points, window_overlap):
         windows.append(df.iloc[i:i + window_size_points])
     return windows
 
-import numpy as np
-import pandas as pd
-
 def fill_dataframe(df, zero_sensitive_cols=None):
     """
     Cleans a DataFrame by replacing bad zeros with NaNs and interpolating missing values.
@@ -167,7 +164,6 @@ def fill_dataframe(df, zero_sensitive_cols=None):
     df = df.interpolate(method='linear', limit_direction='both')
 
     return df
-
 
 def anonymize_window(window_df):
     """

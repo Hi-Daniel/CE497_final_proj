@@ -103,6 +103,7 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
 
     # Fixation and saccade estimation (based on velocity threshold)
     velocity_threshold = 30  # deg/s
+
     normed_eye_dir = eye_dir.div(np.linalg.norm(eye_dir, axis=1), axis=0)
     # Compute cosine between direction vectors (successive rows)
     cos_theta = (normed_eye_dir.shift(1) * normed_eye_dir).sum(axis=1).clip(-1.0, 1.0)
