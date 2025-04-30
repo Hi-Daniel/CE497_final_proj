@@ -1,3 +1,10 @@
+"""
+Manual feature extraction pipeline:
+
+raw data -> identify gaps -> fill gaps -> noise filter -> fixation classification -> windowing -> calculate features
+"""
+
+
 import pandas as pd
 import numpy as np
 
@@ -174,3 +181,62 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
 
 
     return features
+
+def make_nan_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Look at the PupilDiameter column and if row is Nan, make eye related columns also Nan.
+    """
+    gaze_cols = ['GazeOrigin_X', 'GazeOrigin_Y', 'GazeOrigin_Z', 'GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']
+    df.loc[df['PupilDiameter'].isna(), gaze_cols] = np.nan
+    return df
+
+def identify_gaps(df: pd.DataFrame, max_gap_duration_ms=75) -> pd.DataFrame:
+    """
+    Identify gaps in data make temporary column "gap_fill" to indicate if the gap should be filled or not.
+    a gap should be fille if it is less than max_gap_duration_ms.
+    """
+    # make temporary column "gap_fill" to indicate if the gap should be filled or not.
+    df['gap_fill'] = False
+    # iterate through rows in df
+    start_idx = None
+    end_idx = None
+    for index, row in df.iterrows():
+        if np.isnan(row['PupilDiameter']) and start_idx is None:
+            start_idx = index
+        elif not np.isnan(row['PupilDiameter']) and start_idx is not None:
+            end_idx = index
+            start_time = df.loc[start_idx, 'Time_sec']
+            end_time = df.loc[end_idx, 'Time_sec']
+            if end_time - start_time < max_gap_duration_ms/1000:
+                df.loc[start_idx:end_idx, 'gap_fill'] = True
+            start_idx = None
+            end_idx = None
+    return df
+
+def fill_gaps(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fill in gaps in dataframe via interpolation if gap_fill is True.
+    """
+    # interpolate missing values only where gap_fill is True
+    df_filled = df.copy()
+    mask = ~df['gap_fill']
+    df_filled.loc[mask, :] = np.nan
+    df_filled = df_filled.interpolate(method='linear', limit_direction='both', limit_area='inside')
+    
+    # combine original values with interpolated values
+    df = df.fillna(df_filled)
+    return df
+
+def noise_filter(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply low pass filter to gaze related columns.
+    """
+    return df
+
+def fixation_classification(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Classify fixations using 3D I-VT.
+    Creates new column "is_fixation" with values True or False.
+    """
+    return df
+
