@@ -208,29 +208,72 @@ def noise_filter(df: pd.DataFrame, width_ms=10) -> pd.DataFrame:
     df_filtered[gaze_cols] = df_filtered[gaze_cols].apply(lambda x: x.rolling(window=f"{width_ms}ms", min_periods=1).mean())
     return df_filtered
 
-def calculate_velocity_columns(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_velocity_acceleration_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate velocity columns from gaze related columns.
+    Calculate velocity and acceleration columns from gaze related columns.
     """
     # make a copy of the dataframe
     df_filtered = df.copy()
     # Get dt for each row by calculating the difference between consecutive indices
     dt_series = df_filtered.index.to_series().diff()
     # calculate velocity columns
-    df_filtered['Vel_2d_X'] = df_filtered['X_2d_X'].diff() / dt_series
-    df_filtered['Vel_2d_Y'] = df_filtered['X_2d_Y'].diff() / dt_series
-    df_filtered['Vel_2d_tot'] = np.linalg.norm(df_filtered[['Vel_2d_X', 'Vel_2d_Y']], axis=1)
-    df_filtered['Vel_3d_X'] = df_filtered['GazeOrigin_X'].diff() / dt_series
-    df_filtered['Vel_3d_Y'] = df_filtered['GazeOrigin_Y'].diff() / dt_series
-    df_filtered['Vel_3d_Z'] = df_filtered['GazeOrigin_Z'].diff() / dt_series
-    df_filtered['Vel_tur_X'] = df_filtered['CameraDirection_X'].diff() / dt_series
-    df_filtered['Vel_tur_Y'] = df_filtered['CameraDirection_Y'].diff() / dt_series
-    df_filtered['Vel_tur_Z'] = df_filtered['CameraDirection_Z'].diff() / dt_series
+    # Turn direction vectors into spherical angles
+    df_filtered["GazeDirection_Theta"] = np.arctan2(df_filtered["GazeDirection_Y"], df_filtered["GazeDirection_X"]) * 180 / np.pi
+    df_filtered["GazeDirection_Phi"] = np.arccos(df_filtered["GazeDirection_Y"] / 
+                                                np.linalg.norm(df_filtered[["GazeDirection_X", "GazeDirection_Y", "GazeDirection_Z"]], axis=1)) * 180/np.pi
+
+    # Calculate head movement as the difference between camera position and gaze origin
+    df_filtered["HeadLocation_X"] = df_filtered["GazeOrigin_X"] - df_filtered["CameraOrigin_X"]
+    df_filtered["HeadLocation_Y"] = df_filtered["GazeOrigin_Y"] - df_filtered["CameraOrigin_Y"] 
+    df_filtered["HeadLocation_Z"] = df_filtered["GazeOrigin_Z"] - df_filtered["CameraOrigin_Z"]
+
+    # Calculate velocities and accelerations
+    dt_series = df_filtered.index.to_series().diff().dt.total_seconds()
+
+    df_filtered["Velocity_2d"] = np.linalg.norm(df_filtered[["X_2d_X", "X_2d_Y"]].diff(), axis=1) / dt_series
+    df_filtered["CameraMovementVelocity_m_s"] = np.linalg.norm(df_filtered[["CameraOrigin_X", "CameraOrigin_Y", "CameraOrigin_Z"]].diff(), axis=1) / dt_series
+    df_filtered["CameraMovementAcceleration_m_s"] = df_filtered["CameraMovementVelocity_m_s"].diff() / dt_series
+    df_filtered["HeadMovementVelocity_m_s"] = np.linalg.norm(df_filtered[["HeadLocation_X", "HeadLocation_Y", "HeadLocation_Z"]].diff(), axis=1) / dt_series
+    df_filtered["HeadMovementAcceleration_m_s_s"] = df_filtered["HeadMovementVelocity_m_s"].diff() / dt_series
+    
+    # Calculate turning velocity and acceleration
+    # Calculate angular differences accounting for wraparound at 180/-180 degrees
+    theta_diff = df_filtered["GazeDirection_Theta"].diff()
+    theta_diff = np.where(theta_diff > 180, theta_diff - 360, theta_diff)
+    theta_diff = np.where(theta_diff < -180, theta_diff + 360, theta_diff)
+    
+    phi_diff = df_filtered["GazeDirection_Phi"].diff()
+    phi_diff = np.where(phi_diff > 180, phi_diff - 360, phi_diff)
+    phi_diff = np.where(phi_diff < -180, phi_diff + 360, phi_diff)
+    
+    # Calculate turning velocity using the corrected angular differences
+    df_filtered["TurningVelocity_deg_s"] = np.sqrt(theta_diff**2 + phi_diff**2) / dt_series
+    df_filtered["TurningAcceleration_deg_s"] = df_filtered["TurningVelocity_deg_s"].diff() / dt_series
     return df_filtered
 
-def fixation_classification(df: pd.DataFrame) -> pd.DataFrame:
+def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30) -> pd.DataFrame:
     """
     Classify fixations using 3D I-VT.
     Creates new column "is_fixation" with values True or False.
     """
-    return df
+    # make a copy of the dataframe
+    df_filtered = df.copy()
+
+    # Calculate eye thete as the angle difference between gaze direction and previous gaze direction
+    eye_dir = df_filtered[['GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']].to_numpy()
+    eye_dir_prev = np.roll(eye_dir, 1, axis=0)
+    eye_dir_prev[np.isnan(eye_dir_prev)] = 0
+    df_filtered["eye_theta"] = np.sum(eye_dir * eye_dir_prev, axis=1) / np.linalg.norm(eye_dir, axis=1) / np.linalg.norm(eye_dir_prev, axis=1)
+    df_filtered["eye_theta"] = df_filtered["eye_theta"] * 180 / np.pi
+
+    # Apply Gaussian filter to eye_theta
+    df_filtered["eye_theta"] = df_filtered["eye_theta"].rolling(window=10, min_periods=1, center=True).mean()
+    
+    # Apply threshold to classify fixations
+    df_filtered["is_fixation"] = df_filtered["eye_theta"] < velocity_threshold_deg_s
+    
+    
+    
+    
+    
+    return df_filtered
