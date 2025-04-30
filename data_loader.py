@@ -145,26 +145,6 @@ def create_windows(df, window_size_points, window_overlap):
         windows.append(df.iloc[i:i + window_size_points])
     return windows
 
-def fill_dataframe(df, zero_sensitive_cols=None):
-    """
-    Cleans a DataFrame by replacing bad zeros with NaNs and interpolating missing values.
-    Args:
-        df (pd.DataFrame): Raw input DataFrame.
-        zero_sensitive_cols (list): Columns where 0 is considered missing.
-    Returns:
-        pd.DataFrame: Cleaned and interpolated DataFrame.
-    """
-    df = df.copy()
-
-    # Replace bad zeros with NaN only in specific columns
-    if zero_sensitive_cols:
-        df[zero_sensitive_cols] = df[zero_sensitive_cols].replace(0, np.nan)
-
-    # Interpolate everything linearly
-    df = df.interpolate(method='linear', limit_direction='both')
-
-    return df
-
 def anonymize_window(window_df):
     """
     Anonymizes a single window by making positions and orientations relative.
@@ -188,3 +168,51 @@ def anonymize_window(window_df):
     anonymized['GazeOrigin_Y'] = anonymized['GazeOrigin_Y'] - anonymized['GazeOrigin_Y'].mean()
     anonymized['GazeOrigin_Z'] = anonymized['GazeOrigin_Z'] - anonymized['GazeOrigin_Z'].mean()
     return anonymized
+
+def fill_general_features(df, sampling_rate=60, zero_sensitive_cols=None):
+    """
+    Calculates general kinematic features (velocities, accelerations) across full DataFrame.
+    Args:
+        df (pd.DataFrame): Raw input DataFrame.
+        dt (float): Time step in seconds.
+        zero_sensitive_cols (list): List of columns where zeros are considered invalid.
+    Returns:
+        pd.DataFrame: DataFrame with appended feature columns.
+    """
+    df = df.copy()
+    
+    # Remove invalid zeros
+    if zero_sensitive_cols:
+        df[zero_sensitive_cols] = df[zero_sensitive_cols].replace(0, np.nan)
+
+    # Interpolate everything linearly
+    df = df.interpolate(method='linear', limit_direction='both')
+
+    # Dynamic features
+    dt = 1.0/sampling_rate
+
+    # Movement and turning
+    movement = df[['CameraOrigin_X', 'CameraOrigin_Y', 'CameraOrigin_Z']]
+    turning = df[['CameraDirection_X', 'CameraDirection_Y', 'CameraDirection_Z']]
+    
+    df['movement_velocity'] = np.linalg.norm(movement.diff(axis=0), axis=1) / dt
+    df['turning_velocity'] = np.linalg.norm(turning.diff(axis=0), axis=1) / dt
+
+    # Eye direction linear metrics
+    eye_dir = df[['GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']]
+    df['eye_velocity_lin'] = np.linalg.norm(eye_dir.diff(axis=0), axis=1) / dt
+    df['eye_accel_lin'] = df['eye_velocity_lin'].diff() / dt
+
+    # Eye angular metrics
+    normed_eye = eye_dir.div(np.linalg.norm(eye_dir, axis=1), axis=0)
+    cos_theta = (normed_eye.shift(1) * normed_eye).sum(axis=1).clip(-1.0, 1.0)
+    theta_rad = np.arccos(cos_theta)
+    theta_rad.iloc[0] = np.arccos(np.clip((normed_eye.iloc[0] * normed_eye.iloc[1]).sum(), -1.0, 1.0))
+    
+    df['eye_velocity_deg'] = np.degrees(theta_rad) / dt
+    df['eye_accel_deg'] = df['eye_velocity_deg'].diff() / dt
+
+    # Pupil metrics
+    df['pupil_velocity'] = df['PupilDiameter'].diff().abs() / dt
+
+    return df
