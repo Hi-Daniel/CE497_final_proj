@@ -12,6 +12,13 @@ def parse_vector(vector_str):
     except:
         return [np.nan, np.nan, np.nan] # Handle potential parsing errors
 
+def float_or_null(value) -> np.float64:
+    """Converts a value to a float if it is not None."""
+    try:
+        return float(value)
+    except ValueError:
+        return np.nan
+
 def parse_xml_file(file_path):
     """Parses a single XML data file into a dictionary."""
 
@@ -29,6 +36,7 @@ def parse_xml_file(file_path):
     pupil = []
     gaze_origin = []
     gaze_direction = []
+    gaze_intersect = []
     cam_D = []
     cam_X = []
     cam_t = []
@@ -42,6 +50,9 @@ def parse_xml_file(file_path):
         else:
             X_2d.append([np.nan, np.nan])
 
+        gaze_intersect.append([float_or_null(p.find("IntersectionPoint").get('X')), 
+                               float_or_null(p.find("IntersectionPoint").get('Y')), 
+                               float_or_null(p.find("IntersectionPoint").get('Z'))])
         #get gaze origin
         if p.find("GazeOrigin") is not None:
             #get the combined gaze ray screen child
@@ -50,6 +61,7 @@ def parse_xml_file(file_path):
         else:
             gaze_origin.append([np.nan, np.nan, np.nan])
             gaze_direction.append([np.nan, np.nan, np.nan])
+            gaze_intersect.append([np.nan, np.nan, np.nan])
         
     cam_t = [(int(p.find('Timestamp').text) - cam_start_time)/1e6 for p in root.findall("CameraData")]
     cam_D = [[float(p.get("X")), float(p.get("Y")), float(p.get("Z"))] for p in root.findall("CameraData/CameraDirection")]
@@ -61,6 +73,7 @@ def parse_xml_file(file_path):
     pupil = np.array(pupil)
     gaze_origin = np.array(gaze_origin)
     gaze_direction = np.array(gaze_direction)
+    gaze_intersect = np.array(gaze_intersect)
     cam_D = np.array(cam_D)
     cam_X = np.array(cam_X)
     cam_t = np.array(cam_t)
@@ -71,6 +84,7 @@ def parse_xml_file(file_path):
         'PupilDiameter': pupil,
         'GazeOrigin_X': gaze_origin[:,0], 'GazeOrigin_Y': gaze_origin[:,1], 'GazeOrigin_Z': gaze_origin[:,2],
         'GazeDirection_X': gaze_direction[:,0], 'GazeDirection_Y': gaze_direction[:,1], 'GazeDirection_Z': gaze_direction[:,2],
+        'GazeIntersect_X': gaze_intersect[:,0], 'GazeIntersect_Y': gaze_intersect[:,1], 'GazeIntersect_Z': gaze_intersect[:,2],
         'CameraDirection_X': cam_D[:,0], 'CameraDirection_Y': cam_D[:,1], 'CameraDirection_Z': cam_D[:,2],
         'CameraOrigin_X': cam_X[:,0], 'CameraOrigin_Y': cam_X[:,1], 'CameraOrigin_Z': cam_X[:,2],
         'CameraTime_sec': cam_t
@@ -96,7 +110,10 @@ def data_dict_to_df(data_dict):
                            'GazeOrigin_Z': data_dict['GazeOrigin_Z'],
                            'GazeDirection_X': data_dict['GazeDirection_X'],
                            'GazeDirection_Y': data_dict['GazeDirection_Y'],
-                           'GazeDirection_Z': data_dict['GazeDirection_Z']})
+                           'GazeDirection_Z': data_dict['GazeDirection_Z'],
+                           'GazeIntersect_X': data_dict['GazeIntersect_X'],
+                           'GazeIntersect_Y': data_dict['GazeIntersect_Y'],
+                           'GazeIntersect_Z': data_dict['GazeIntersect_Z']})
     
     #merge the two dataframes on the 'Time_sec' column
     df = pd.merge(gaze_df, cam_df, on='Time_sec', how='outer')
