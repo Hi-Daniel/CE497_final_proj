@@ -259,18 +259,24 @@ def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30) -> pd
     # make a copy of the dataframe
     df_filtered = df.copy()
 
-    # Calculate eye thete as the angle difference between gaze direction and previous gaze direction
+    # Calculate eye theta as the angle difference between gaze direction and previous gaze direction
     eye_dir = df_filtered[['GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']].to_numpy()
     eye_dir_prev = np.roll(eye_dir, 1, axis=0)
     eye_dir_prev[np.isnan(eye_dir_prev)] = 0
-    df_filtered["eye_theta"] = np.sum(eye_dir * eye_dir_prev, axis=1) / np.linalg.norm(eye_dir, axis=1) / np.linalg.norm(eye_dir_prev, axis=1)
+    df_filtered["eye_theta"] = np.arccos(np.sum(eye_dir * eye_dir_prev, axis=1) 
+                                         / np.linalg.norm(eye_dir, axis=1) 
+                                         / np.linalg.norm(eye_dir_prev, axis=1))
     df_filtered["eye_theta"] = df_filtered["eye_theta"] * 180 / np.pi
 
-    # Apply Gaussian filter to eye_theta
-    df_filtered["eye_theta"] = df_filtered["eye_theta"].rolling(window=10, min_periods=1, center=True).mean()
-    
+    # Apply 5 tap filter to eye_theta with weighted average 
+    weights = np.array([1, 2, 3, 2, 1])
+    dt_series = df_filtered.index.to_series().diff().dt.total_seconds()
+    df_filtered["eye_theta"] = df_filtered["eye_theta"].rolling(window=5, min_periods=5).apply(lambda x: np.sum(x * weights) / np.sum(weights))
+    df_filtered["eye_velocity_deg_s"] = df_filtered["eye_theta"] / dt_series.rolling(window=5, min_periods=5).sum()
+ 
+
     # Apply threshold to classify fixations
-    df_filtered["is_fixation"] = df_filtered["eye_theta"] < velocity_threshold_deg_s
+    df_filtered["is_fixation"] = df_filtered["eye_velocity_deg_s"] < velocity_threshold_deg_s
     
     
     
