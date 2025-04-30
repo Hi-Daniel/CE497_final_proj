@@ -145,12 +145,22 @@ def compute_gaze_area_features(df):
     head_var = df[['GazeOrigin_X', 'GazeOrigin_Y']].var()
     features['head_area_covered'] = head_var.sum()
     return features
+
 def make_nan_rows(df: pd.DataFrame) -> pd.DataFrame:
     """
     Look at the PupilDiameter column and if row is Nan, make eye related columns also Nan.
     """
     gaze_cols = ['GazeOrigin_X', 'GazeOrigin_Y', 'GazeOrigin_Z', 'GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']
     df.loc[df['PupilDiameter'].isna(), gaze_cols] = np.nan
+    return df
+
+def index_by_time(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Index the dataframe by the Time_sec column. and convert to timedelta
+    """
+    # make Time_sec column a datetime column and index the dataframe by it
+    df['Time_timedelta'] = pd.to_timedelta(df['Time_sec'], unit='s')
+    df = df.set_index('Time_timedelta')
     return df
 
 def identify_gaps(df: pd.DataFrame, max_gap_duration_ms=75) -> pd.DataFrame:
@@ -161,40 +171,62 @@ def identify_gaps(df: pd.DataFrame, max_gap_duration_ms=75) -> pd.DataFrame:
     # make temporary column "gap_fill" to indicate if the gap should be filled or not.
     df['gap_fill'] = False
     # iterate through rows in df
-    start_idx = None
-    end_idx = None
+    start_time = None
+    end_time = None
     for index, row in df.iterrows():
-        if np.isnan(row['PupilDiameter']) and start_idx is None:
-            start_idx = index
-        elif not np.isnan(row['PupilDiameter']) and start_idx is not None:
-            end_idx = index
-            start_time = df.loc[start_idx, 'Time_sec']
-            end_time = df.loc[end_idx, 'Time_sec']
-            if end_time - start_time < max_gap_duration_ms/1000:
-                df.loc[start_idx:end_idx, 'gap_fill'] = True
-            start_idx = None
-            end_idx = None
+        if np.isnan(row['PupilDiameter']) and start_time is None:
+            start_time = index  
+        elif not np.isnan(row['PupilDiameter']) and start_time is not None:
+            end_time = index
+            if end_time - start_time < pd.Timedelta(max_gap_duration_ms, unit='ms'):
+                df.loc[start_time:end_time, 'gap_fill'] = True
+            start_time = None
+            end_time = None
     return df
 
 def fill_gaps(df: pd.DataFrame) -> pd.DataFrame:
     """
     Fill in gaps in dataframe via interpolation if gap_fill is True.
     """
-    # interpolate missing values only where gap_fill is True
+    # Make a copy and interpolate all values
     df_filled = df.copy()
-    mask = ~df['gap_fill']
-    df_filled.loc[mask, :] = np.nan
     df_filled = df_filled.interpolate(method='linear', limit_direction='both', limit_area='inside')
     
-    # combine original values with interpolated values
-    df = df.fillna(df_filled)
+    # replace values in original df where gap_fill is True with interpolated values
+    df.loc[df['gap_fill'], :] = df_filled.loc[df['gap_fill'], :]
+    
     return df
 
-def noise_filter(df: pd.DataFrame) -> pd.DataFrame:
+def noise_filter(df: pd.DataFrame, width_ms=10) -> pd.DataFrame:
     """
     Apply low pass filter to gaze related columns.
     """
-    return df
+    # make a copy of the dataframe
+    gaze_cols = ['X_2d_X', 'X_2d_Y', 'GazeOrigin_X', 'GazeOrigin_Y', 'GazeOrigin_Z', 'GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']
+    df_filtered = df.copy()
+    # apply low pass filter to gaze related columns
+    df_filtered[gaze_cols] = df_filtered[gaze_cols].apply(lambda x: x.rolling(window=f"{width_ms}ms", min_periods=1).mean())
+    return df_filtered
+
+def calculate_velocity_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate velocity columns from gaze related columns.
+    """
+    # make a copy of the dataframe
+    df_filtered = df.copy()
+    # Get dt for each row by calculating the difference between consecutive indices
+    dt_series = df_filtered.index.to_series().diff()
+    # calculate velocity columns
+    df_filtered['Vel_2d_X'] = df_filtered['X_2d_X'].diff() / dt_series
+    df_filtered['Vel_2d_Y'] = df_filtered['X_2d_Y'].diff() / dt_series
+    df_filtered['Vel_2d_tot'] = np.linalg.norm(df_filtered[['Vel_2d_X', 'Vel_2d_Y']], axis=1)
+    df_filtered['Vel_3d_X'] = df_filtered['GazeOrigin_X'].diff() / dt_series
+    df_filtered['Vel_3d_Y'] = df_filtered['GazeOrigin_Y'].diff() / dt_series
+    df_filtered['Vel_3d_Z'] = df_filtered['GazeOrigin_Z'].diff() / dt_series
+    df_filtered['Vel_tur_X'] = df_filtered['CameraDirection_X'].diff() / dt_series
+    df_filtered['Vel_tur_Y'] = df_filtered['CameraDirection_Y'].diff() / dt_series
+    df_filtered['Vel_tur_Z'] = df_filtered['CameraDirection_Z'].diff() / dt_series
+    return df_filtered
 
 def fixation_classification(df: pd.DataFrame) -> pd.DataFrame:
     """
