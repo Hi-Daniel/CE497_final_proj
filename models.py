@@ -19,7 +19,7 @@ def get_activation(activation_name):
 
 # --- Deep Autoencoder (MLP based) ---
 class DeepAE(nn.Module):
-    def __init__(self, input_dim, encoding_dim, hidden_dims=None, activation='relu', dropout_rate=0.1):
+    def __init__(self, input_dim, encoding_dim, hidden_dims=None, activation='relu', dropout_rate=0.1, output_activations=None, latent_regularization=0.01):
         """
         Initializes a Deep Autoencoder.
 
@@ -32,6 +32,8 @@ class DeepAE(nn.Module):
             activation (str, optional): Activation function name ('relu', 'tanh', etc.).
                                         Defaults to 'relu'.
             dropout_rate (float, optional): Dropout rate to apply between layers. Defaults to 0.1.
+            output_activations (list[str], optional): List of activation functions for output layers.
+                                                      Defaults to None (no activation).
         """
         super(DeepAE, self).__init__();
 
@@ -45,7 +47,8 @@ class DeepAE(nn.Module):
 
         # Encoder layers
         for i, h_dim in enumerate(hidden_dims):
-            layers[f'enc_linear_{i}'] = nn.Linear(last_dim, h_dim)
+            layers[f'enc_linear_{i}'] = nn.Linear(last_dim, h_dim, )
+            layers[f'enc_batchnorm_{i}'] = nn.BatchNorm1d(h_dim)
             layers[f'enc_act_{i}'] = act_fn
             if dropout_rate > 0:
                  layers[f'enc_dropout_{i}'] = nn.Dropout(dropout_rate)
@@ -55,6 +58,7 @@ class DeepAE(nn.Module):
         # layers['enc_bottleneck_act'] = act_fn
 
         self.encoder = nn.Sequential(layers)
+        self.encoder.__name__ = "encoder"
 
         # Decoder layers (reverse order)
         layers = OrderedDict()
@@ -63,15 +67,28 @@ class DeepAE(nn.Module):
         # layers['dec_bottleneck_act'] = act_fn
         for i, h_dim in enumerate(reversed(hidden_dims)):
             layers[f'dec_linear_{i}'] = nn.Linear(last_dim, h_dim)
+            layers[f'dec_batchnorm_{i}'] = nn.BatchNorm1d(h_dim)
             layers[f'dec_act_{i}'] = act_fn
             if dropout_rate > 0:
                  layers[f'dec_dropout_{i}'] = nn.Dropout(dropout_rate)
             last_dim = h_dim
         layers['dec_output'] = nn.Linear(last_dim, input_dim)
         # Optional: Output activation (e.g., Sigmoid if input is normalized 0-1)
-        # layers['dec_output_act'] = nn.Sigmoid()
+        if output_activations is not None:
+            #check that length of output_activations matches input_dim
+            if len(output_activations) != input_dim:
+                raise ValueError(f"Number of output activations ({len(output_activations)}) does not match input dimension ({input_dim})")
+            # Split output into separate dimensions, each with its own activation
+            output_dims = nn.ModuleList()
+            for i, act in enumerate(output_activations):
+                output_dims.append(nn.Sequential(
+                    nn.Linear(input_dim, 1),
+                    get_activation(act)
+                ))
+            layers['dec_output_dims'] = output_dims
 
         self.decoder = nn.Sequential(layers)
+        self.decoder.__name__ = "decoder"
 
     def forward(self, x):
         encoded = self.encoder(x)
@@ -225,7 +242,6 @@ class LSTM_AE(nn.Module):
         # hidden shape: (num_layers * num_directions, batch, hidden_size)
         # cell shape: (num_layers * num_directions, batch, hidden_size)
         outputs, (hidden, cell) = self.encoder_lstm(x)
-
         # Extract relevant part for latent space
         # Using the output of the *last* time step
         last_output = outputs[:, -1, :] # Shape: (batch, num_directions * hidden_size)
@@ -250,10 +266,10 @@ class LSTM_AE(nn.Module):
         # Map LSTM outputs back to the original feature dimension for each time step
         # Input shape: (batch * seq_len, lstm_output_dim)
         # Output shape: (batch * seq_len, input_dim)
-        recon_x = self.output_fc(decoder_outputs.reshape(-1, decoder_outputs.size(2)))
-
+        batch_size, seq_len, hidden_size = decoder_outputs.shape
+        recon_x = self.output_fc(decoder_outputs.reshape(-1, hidden_size))
         # Reshape back to sequence: (batch, seq_len, input_dim)
-        recon_x = recon_x.reshape(decoder_outputs.size(0), self.seq_len, self.input_dim)
+        recon_x = recon_x.reshape(batch_size, self.seq_len, self.input_dim)
         return recon_x
 
     def forward(self, x):
