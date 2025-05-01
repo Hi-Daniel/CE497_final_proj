@@ -249,7 +249,7 @@ def calculate_velocity_acceleration_columns(df: pd.DataFrame) -> pd.DataFrame:
     df_filtered["TurningAcceleration_deg_s"] = df_filtered["TurningVelocity_deg_s"].diff() / dt_series
     return df_filtered
 
-def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30) -> pd.DataFrame:
+def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30, min_fixation_ms=60) -> pd.DataFrame:
     """
     Classify fixations using 3D I-VT.
     Creates new column "is_fixation" with values True or False.
@@ -261,7 +261,7 @@ def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30) -> pd
     eye_dir = df_filtered[['GazeDirection_X', 'GazeDirection_Y', 'GazeDirection_Z']].to_numpy()
     eye_dir_prev = np.roll(eye_dir, 1, axis=0)
     eye_dir_prev[np.isnan(eye_dir_prev)] = 0
-    df_filtered["eye_theta"] = np.arccos(np.sum(eye_dir * eye_dir_prev, axis=1) 
+    df_filtered["eye_theta"] = np.arccos(np.clip(np.sum(eye_dir * eye_dir_prev, axis=1), -1, 1) 
                                          / np.linalg.norm(eye_dir, axis=1) 
                                          / np.linalg.norm(eye_dir_prev, axis=1))
     df_filtered["eye_theta"] = df_filtered["eye_theta"] * 180 / np.pi
@@ -275,4 +275,39 @@ def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30) -> pd
 
     # Apply threshold to classify fixations
     df_filtered["is_fixation"] = df_filtered["eye_velocity_deg_s"] < velocity_threshold_deg_s
+    
+    # collapse consecutive fixations and saccades into groups
+    fixation_groups = df_filtered["is_fixation"].ne(df_filtered["is_fixation"].shift()).cumsum()
+    fixation_saccade_groups = df_filtered.groupby(fixation_groups)
+
+    # calculate duration of each group
+    group_durations = fixation_saccade_groups.apply(lambda x: (x.index[-1] - x.index[0]).total_seconds() * 1000)
+    
+    # identify groups that are fixations but too short
+    short_fixation_groups = group_durations[
+        (group_durations < min_fixation_ms)
+    ].index
+
+    # set is_fixation to False for short fixation groups
+    df_filtered.loc[df_filtered[fixation_groups.isin(short_fixation_groups)].index, "is_fixation"] = False
+
+    # recalculate groups after updating is_fixation
+    fixation_groups = df_filtered["is_fixation"].ne(df_filtered["is_fixation"].shift()).cumsum()
+    fixation_saccade_groups = df_filtered.groupby(fixation_groups)
+
+    df_filtered["fixation_saccade_group"] = fixation_groups
     return df_filtered
+
+def internal_angle(vector_a, vector_b):
+    # Compute dot product
+    dot_product = np.dot(vector_a, vector_b)
+    # Compute magnitudes (norms)
+    norm_a = np.linalg.norm(vector_a)
+    norm_b = np.linalg.norm(vector_b)
+    # Compute cosine of the angle
+    cos_theta = dot_product / (norm_a * norm_b)
+    # Compute angle in radians
+    angle_radians = np.arccos(np.clip(cos_theta, -1.0, 1.0))  # Clip to handle numerical precision issues
+    # Convert to degrees (optional)
+    angle_degrees = np.degrees(angle_radians)
+    return angle_degrees
