@@ -33,7 +33,7 @@ class DeepAE(nn.Module):
                                         Defaults to 'relu'.
             dropout_rate (float, optional): Dropout rate to apply between layers. Defaults to 0.1.
         """
-        super(DeepAE, self).__init__(self);
+        super(DeepAE, self).__init__();
 
         if hidden_dims is None:
             # Default to one hidden layer roughly halfway between input and encoding

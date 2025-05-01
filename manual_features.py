@@ -66,8 +66,6 @@ def calculate_manual_features_for_window(window_df, sampling_rate=60):
     features.update(compute_eye_movement_features(window_df, dt))
     features.update(compute_fixation_saccade_features(window_df, dt))
     features.update(compute_gaze_area_features(window_df))
-    features.update(compute_relative_gaze_features(window_df))
-    features.update(compute_movement_features(window_df))
 
     return features
 
