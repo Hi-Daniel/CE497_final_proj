@@ -277,9 +277,4 @@ def fixation_classification(df: pd.DataFrame, velocity_threshold_deg_s=30) -> pd
 
     # Apply threshold to classify fixations
     df_filtered["is_fixation"] = df_filtered["eye_velocity_deg_s"] < velocity_threshold_deg_s
-    
-    
-    
-    
-    
     return df_filtered
