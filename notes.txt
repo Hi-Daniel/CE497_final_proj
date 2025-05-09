@@ -1,1 +1,0 @@
-Intersection Point (x,y,z) removed for now
